@@ -1,89 +1,93 @@
 # BigData Journey — Airflow SQL Runner
 
-Мини-проект: Airflow ежедневно в 09:00 выполняет все *.sql из папки и пишет метрики в витрины dm.*.
+Mini‑project: Airflow runs all .sql files from the folder every day at 09:00 and writes metrics to the dm.* marts.
 
-Аналитики кладут свои скрипты в sources/ — DAG подхватывает их сам.
+Analysts put their scripts into sources/ — the DAG picks them up automatically.
 
-**Что внутри:**
+## What’s inside
 
 	•	Airflow (webserver, scheduler, worker) + CeleryExecutor
-	•	Redis — брокер задач
-	•	Postgres (postgres) — метабаза Airflow
-	•	Postgres (pg_shop) — рабочая БД магазина (данные/витрины)
-	•	DAG daily_sql_runner — читает SQL из sources/ и гоняет по алфавиту каждый день в 09:00
+	•	Redis — task broker
+	•	Postgres (postgres) — Airflow metadata DB
+	•	Postgres (pg_shop) — working shop database (data/marts)
+	•	DAG daily_sql_runner — reads SQL from sources/ and runs them in alphabetical order every day at 09:00
 
-**Требования:**
+Requirements
 
-    •	Docker + Docker Compose
-    •	Свободные порты: 8080 (Airflow UI), 5433 (pg_shop наружу)
+	•	Docker + Docker Compose
+	•	Free ports: 8080 (Airflow UI), 5433 (pg_shop exposed)
 
-**Структура проекта:**
+Project structure
 
     project-root/
     ├─ docker-compose.yml
     ├─ dags/
-    │  ├─ daily_sql_runner.py      # DAG: выполняет *.sql из sources/
-    │  └─ hello_world.py           # демо-DAG (не обязателен)
-    ├─ sources/                    # сюда аналитики кладут ежедневные .sql
+    │  ├─ daily_sql_runner.py      # DAG: runs *.sql from sources/
+    │  └─ hello_world.py           # demo DAG (optional)
+    ├─ sources/                    # analysts put daily .sql here
     │  ├─ 01_customer_behavior_analise.sql
     │  └─ 02_sales_analise.sql
-    ├─ sql_initialise_scripts/     # разовые скрипты инициализации БД
+    ├─ sql_initialise_scripts/     # one-time DB initialization scripts
     │  ├─ create_db.sql
     │  ├─ create_tables.sql
     │  └─ initial_db.sql
-    ├─ plugins/                    # (опционально) свои плагины Airflow
-    └─ logs/                       # логи Airflow (монтируются в контейнер)
+    ├─ plugins/                    # (optional) custom Airflow plugins
+    └─ logs/                       # Airflow logs (mounted in the container)
 
+In docker-compose.yml the local ./sources folder is mounted into the container as /opt/airflow/sources, and the DAG reads the path from the env var SQL_DIR=/opt/airflow/sources.
 
-В docker-compose.yml папка ./sources смонтирована в контейнер как /opt/airflow/sources, а DAG берёт путь из ENV SQL_DIR=/opt/airflow/sources.
+How to run:
 
-Как запустить
-
-1. В начале вводим команду:
+### 1.	Build the image
 
 `docker build -t airflow-with-java .`
 
-а после загрузки: `docker-compose up --build`
+### 2.	Start the stack
 
-2.	Зайдите в Airflow UI: http://localhost:8080
+`docker-compose up --build`
 
-логин/пароль по умолчанию: airflow / airflow.
+### 3.	Open Airflow UI: 
 
-3.	Создайте Connection к БД магазина (если ещё не создан):
+http://localhost:8080  
 
-Через UI: Admin → Connections → +
+Default login/password: airflow / airflow.
+
+### 4.	Create a Connection to the shop DB (if it isn’t there yet):
+
+UI → Admin → Connections → +
 
 	•	Conn Id: shop_pg
 	•	Conn Type: Postgres
 	•	Host: pg_shop
 	•	Port: 5432
-	•	Schema/Database: shop_analytics  (или retail, если данные у вас в этой базе)
+	•	Schema/Database: shop_analytics (or retail if that’s where your data is)
 	•	Login: shop_user
 	•	Password: shop_password
 
-4. 	Запустить DAG вручную (кнопка Trigger DAG в UI) — для проверки.
+### 5.	Trigger the DAG manually (UI: Trigger DAG) to test.
 
-Как работает daily_sql_runner
+How daily_sql_runner works
 
-	•	Берёт путь к SQL из ENV SQL_DIR (по умолчанию /opt/airflow/sources).
-	•	Собирает все *.sql, сортирует по имени (01_*.sql, 02_*.sql, …).
-	•	Передаёт имя файла оператору, а оператор сам читает файл из template_searchpath и подставляет Jinja-переменные ({{ ds }} и т.п.).
-	•	Выполняет последовательно. В конце — короткое уведомление в лог.
+	•	Takes the SQL path from SQL_DIR (default /opt/airflow/sources).
+	•	Collects all *.sql, sorts by filename (01_*.sql, 02_*.sql, …).
+	•	Passes the filename to an operator; the operator reads the file from template_searchpath and renders Jinja variables (e.g., {{ ds }}).
+	•	Executes sequentially. A short summary is written to the log at the end.
 
-Где класть SQL и как их писать
+Where to put SQL and how to name it
 
-	•	Кладите файлы в sources/, называйте с префиксом порядка:
+    •	Put files into sources/ and prefix them to control order, for example:
 	•	01_customer_behavior_analise.sql
 	•	02_sales_analise.sql
 
-#### Где смотреть результат
+## Where to see results
 
-1.	В UI Airflow
+### 1. In the Airflow UI
 
-	•	DAGs → daily_sql_runner → Grid/Graph — статусы тасок.
-	•	Клик по таску → Log (выполненный SQL), Rendered (как подставился {{ ds }}).
 
-2. В БД
+	•	DAGs → daily_sql_runner → Grid/Graph — task statuses.
+	•	Click a task → Log (executed SQL), Rendered (how {{ ds }} was substituted).
 
-    `SELECT * FROM dm.daily_customer_metrics ORDER BY d DESC;`
-    `SELECT * FROM dm.daily_sales_totals  ORDER BY d DESC;`
+### In the database
+
+`SELECT * FROM dm.daily_customer_metrics ORDER BY d DESC;`
+`SELECT * FROM dm.daily_sales_totals  ORDER BY d DESC;`
